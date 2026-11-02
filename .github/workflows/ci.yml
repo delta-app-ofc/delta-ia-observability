@@ -1,0 +1,48 @@
+name: CI tecnico
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-tecnico-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validar-template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar sintaxe YAML dos workflows
+        run: |
+          ruby -e 'require "psych"; Dir.glob(".github/workflows/*.{yml,yaml}").each { |f| Psych.parse_file(f); puts "OK: #{f}" }'
+      - name: Validar arquivos e regras essenciais
+        run: |
+          test -s LICENSE
+          test -s .gitignore
+          git check-ignore --no-index -q .env
+          git check-ignore --no-index -q node_modules/exemplo
+          git check-ignore --no-index -q target/exemplo
+          if git check-ignore --no-index -q .env.example; then
+            echo '.env.example deve poder ser versionado' >&2
+            exit 1
+          fi
+
+  report-ci:
+    name: Reportar resultado do CI na PR
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - validar-template
+    uses: delta-app-ofc/.github/.github/workflows/report_ci.yml@8f4329cdde8ad39527069966a5cb97bbb49675b5
+    with:
+      needs_results: ${{ toJSON(needs) }}
+    secrets:
+      DELTA_ORG_AUTOMATION_TOKEN: ${{ secrets.DELTA_ORG_AUTOMATION_TOKEN }}
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write

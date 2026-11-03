@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Delta IA Observabilidade</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#f5f7fa;color:#1b2430}
+h1{font-size:1.3rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 3px #0002}.card b{display:block;font-size:1.3rem}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:12px 0}
+table{border-collapse:collapse;width:100%;background:#fff}td,th{padding:6px 8px;border-bottom:1px solid #e3e8ef;text-align:right}th:first-child,td:first-child{text-align:left}
+small{color:#5b6775}
+</style></head><body>
+<h1>Delta IA — Observabilidade</h1>
+<label>Período <select id="days"><option>1</option><option selected>7</option><option>30</option></select> dias</label>
+<p id="msg"></p><div class="grid" id="cards"></div>
+<div class="charts"><div class="card"><canvas id="agents"></canvas></div><div class="card"><canvas id="series"></canvas></div></div>
+<h2>Projeção semanal</h2><table id="proj"></table>
+<small>"Resolvida" é um proxy: resposta com sucesso e sem bloqueio, não confirmação da pessoa usuária. As projeções exigem OBS_QUESTIONS_PER_USER_WEEK no servidor.</small>
+<script>
+const f=(v,d=2)=>v==null?"—":Number(v).toFixed(d);let charts={};
+function draw(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id),cfg)}
+async function get(url){const r=await fetch(url);if(!r.ok)throw new Error(url);return r.json()}
+async function load(){
+ const days=document.getElementById("days").value,msg=document.getElementById("msg");
+ try{
+  const [s,ser]=await Promise.all([get("/api/summary?days="+days),get("/api/series?days="+days)]);
+  msg.textContent=s.requests?"":"Sem requisições no período.";
+  const c=[["Requisições",s.requests],["Índice de erros",f(s.error_rate*100,1)+"%"],["p50 / p95 (ms)",s.latency_total_ms.p50+" / "+s.latency_total_ms.p95],
+   ["Custo (US$)",f(s.cost_usd,4)],["Custo por resolução",f(s.cost_per_resolution_usd,4)],["ROI",f(s.roi)],["SLO",s.slo.ok==null?"—":s.slo.ok?"ok":"violado"]];
+  document.getElementById("cards").innerHTML=c.map(([k,v])=>"<div class='card'><small>"+k+"</small><b>"+v+"</b></div>").join("");
+  const names=Object.keys(s.latency_by_agent_ms);
+  draw("agents",{type:"bar",data:{labels:names,datasets:[{label:"p95 por agente (ms)",data:names.map(n=>s.latency_by_agent_ms[n].p95)},{label:"p50",data:names.map(n=>s.latency_by_agent_ms[n].p50)}]}});
+  draw("series",{type:"line",data:{labels:ser.map(p=>p.at.slice(5,16)),datasets:[{label:"Latência total (ms)",data:ser.map(p=>p.total_ms),tension:.2}]}});
+  document.getElementById("proj").innerHTML="<tr><th>Cenário</th><th>Usuários/sem</th><th>Custo sem. (US$)</th><th>Custo mês (US$)</th><th>Custo sem. (R$)</th><th>ROI</th></tr>"+
+   s.projection.map(p=>"<tr><td>"+p.scenario+"</td><td>"+p.users_per_week+"</td><td>"+f(p.cost_week_usd,4)+"</td><td>"+f(p.cost_month_usd,4)+"</td><td>"+f(p.cost_week_brl)+"</td><td>"+f(p.roi)+"</td></tr>").join("");
+ }catch(e){msg.textContent="Não foi possível carregar os dados."}
+}
+document.getElementById("days").onchange=load;load();
+</script></body></html>
